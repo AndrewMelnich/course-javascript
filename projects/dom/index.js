@@ -11,9 +11,8 @@
    createDivWithText('loftschool') // создаст элемент div, поместит в него 'loftschool' и вернет созданный элемент
  */
 function createDivWithText(text) {
-  const textElemet = text;
   const element = document.createElement('div');
-  element.textContent = textElemet;
+  element.textContent = text;
   return element;
 }
 
