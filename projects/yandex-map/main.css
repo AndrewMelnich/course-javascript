@@ -1,0 +1,29 @@
+@import url(./index.html);
+
+body{
+    padding: 0;
+    margin: 0;
+}
+
+.reviews{
+    max-height: 200px;
+    overflow: scroll;
+}
+
+.review{
+    border: 1px solid black;
+    padding: 5px;
+    border-radius: 5px;
+    margin-bottom: 14px;
+
+}
+
+.line{
+    display: inline;
+    margin-bottom: 20px;
+}
+
+.form{
+    width: 310px;
+    height: 550px;
+}
