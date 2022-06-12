@@ -1,142 +1,106 @@
-import { formTemplate } from './templates';
 import './index.html';
+import { formTemplate } from './templates.js';
 let ymaps;
-
-const reviews = JSON.parse(localStorage.getItem('reviewsBox')) || [];
+//Глобальная переменная для работы с кластером
+let clusterer;
 
 document.addEventListener('DOMContentLoaded', () => {
-  // eslint-disable-line no-undef
   ymaps.ready(init);
-
   function init() {
     const myMap = new ymaps.Map('map', {
       center: [56.010566, 92.852571],
       zoom: 12,
     });
 
-    reviews.forEach((element) => {
-      addCluster(myMap, element.coords, true);
+    myMap.events.add('click', async function (e) {
+      const coords = e.get('coords');
+      openBalloon(myMap, coords, []);
     });
 
-    myMap.events.add('click', function (e) {
-      const coords = e.get('coords');
-      openBalloon(myMap, coords);
+    clusterer = new ymaps.Clusterer({ clusterDisableClickZoom: true });
+    clusterer.options.set('hasBalloon', false);
+
+    getGeoObjects(myMap);
+    clusterer.events.add('click', function (e) {
+      //Получаем текущие плейсмарки (они же геообъекты) в кластере по которому кликнули в зависимости от зума
+      const geoObjectsInCluster = e.get('target').getGeoObjects();
+      openBalloon(myMap, e.get('coords'), geoObjectsInCluster);
     });
   }
 });
 
-function getOptionsCluster(coords) {
-  const clusterObjects = [];
-
-  for (const review of reviews) {
-    if (JSON.stringify(review.coords) === JSON.stringify(coords)) {
-      //сравниваем координаты отзывов
-      const geoObj = new ymaps.GeoObject({
-        geometry: { type: 'Point', coordinates: coords },
-      });
-      clusterObjects.push(geoObj);
-    }
-  }
-
-  return clusterObjects;
-}
-
-function getExistingOptionsCluster() {
-  return reviews.map((review) => {
-    return new ymaps.GeoObject({
-      geometry: { type: 'Point', coordinates: review.coords },
-    });
-  });
-}
-
-function addCluster(map, coords, isExisting = false) {
-  const clusterer = new ymaps.Clusterer({ clusterDisableClickZoom: true });
-  clusterer.options.set('hasBalloon', false);
-
-  function addToCluster() {
-    const myGeoObjects = isExisting
-      ? getExistingOptionsCluster()
-      : getOptionsCluster(coords);
-
-    clusterer.add(myGeoObjects); //генерируем точки
-    map.geoObjects.add(clusterer); // ставим на карту
-    map.balloon.close();
-  }
-
-  // console.log('1', coords);
-
-  clusterer.events.add('click', function (e) {
-    e.preventDefault();
-    openBalloon(map, coords, clusterer, addToCluster);
-  });
-
-  addToCluster();
-}
-
-// function storageCluster(){
-
-//     for (const iterator of localReviews) {
-//         let localBoxReviews = localStorage.getItem('reviewsBox');
-//         let localParsReviews = JSON.parse(localBoxReviews);
-
-//     }
-// }
-
-function getReviewList(coords) {
+function getReviewList(currentGeoObjects) {
   let reviewListHTML = '';
 
-  for (const review of reviews) {
-    if (JSON.stringify(review.coords) === JSON.stringify(coords)) {
+  for (const review of getReviewsFromLS()) {
+    //В условии пробегаемся по текущим геобъектам и там где найдено соответвие координат геообъекта и отзыва, то отрисовываем отзыв
+    //Вспоминаем работу метода массива some
+    if (
+      currentGeoObjects.some(
+        (geoObject) =>
+          JSON.stringify(geoObject.geometry._coordinates) ===
+          JSON.stringify(review.coords)
+      )
+    ) {
       reviewListHTML += `
-                <div class="review">
-                    <div class="line">
-                        <div><strong>${review.author}</strong></div>
-                        <div>${review.place}</div>
-                    </div>
-                    <div class="line">
-                        <div>${review.reviewText}</div>
-                    </div>
-                </div>
-            `;
+      <div class="review">
+        <div class="line">
+            <div class="review__name">${review.author} &nbsp</div>
+            <div class="review__place">${review.place}</div>
+        </div>
+        <div class="line">
+            <div class="review__text">${review.reviewText}</div>
+        </div>
+      </div>
+      `;
     }
   }
   return reviewListHTML;
 }
 
-async function openBalloon(map, coords, clusterer, fn) {
-  const review = reviews.find((review) => review.coords === coords) || {};
-  const localCoords = review.coords || coords;
-  console.log(clusterer);
-  await map.balloon.open(localCoords, {
-    content: `<div class="reviews">${getReviewList(coords)}</div>${formTemplate(review)}`,
-  });
+function getReviewsFromLS() {
+  const reviews = localStorage.reviews;
+  return JSON.parse(reviews || '[]');
+}
 
+function getGeoObjects(map) {
+  const geoObjects = [];
+  for (const review of getReviewsFromLS() || []) {
+    const placemark = new ymaps.Placemark(review.coords);
+    placemark.events.add('click', (e) => {
+      e.stopPropagation();
+      //В e.get('target') получим 1 геообъект содержащийся в плейсмаркете и поместим его в массив
+      openBalloon(map, e.get('coords'), [e.get('target')]);
+    });
+    geoObjects.push(placemark);
+  }
+
+  clusterer.removeAll();
+  map.geoObjects.remove(clusterer);
+  clusterer.add(geoObjects);
+  map.geoObjects.add(clusterer);
+}
+
+async function openBalloon(map, coords, currentGeoObjects) {
+  await map.balloon.open(coords, {
+    content:
+      `<div class="reviews">${getReviewList(currentGeoObjects)}</div>` + formTemplate,
+  });
   document.querySelector('#add-form').addEventListener('submit', function (e) {
     e.preventDefault();
-
-    if (clusterer) {
-      clusterer.removeAll();
-    }
-
-    reviews.push({
-      coords: coords,
+    const review = {
+      coords,
       author: this.elements.author.value,
       place: this.elements.place.value,
       reviewText: this.elements.review.value,
-    });
+    };
 
-    localStorage.setItem('reviewsBox', JSON.stringify(reviews));
+    //Записываем в ЛС новый отзыв
+    localStorage.reviews = JSON.stringify([...getReviewsFromLS(), review]);
 
-    !fn ? addCluster(map, coords) : fn();
+    //на основании нового значения в ЛС отрисовываем метки
+    getGeoObjects(map);
+
     map.balloon.close();
   });
 }
-
-// function setLocalStorage(){
-//    localStorage.setItem('reviewsBox', JSON.stringify(reviews));
-// }
-
-// function getLocalStorage(){
-//     localReviews.push(localStorage.getItem('reviewsBox'));
-//     localStorage.getItem('reviewsBox')
-// }
